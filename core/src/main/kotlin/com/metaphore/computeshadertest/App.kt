@@ -18,6 +18,7 @@ import ktx.app.KtxScreen
 import ktx.app.clearScreen
 import ktx.assets.disposeSafely
 import ktx.graphics.use
+import ktx.log.debug
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.IntBuffer
@@ -28,6 +29,8 @@ class App(val gl31Ext: GLES31Imp) : KtxGame<KtxScreen>() {
         Gdx.app.logLevel = Application.LOG_DEBUG
 
         ShaderProgram.pedantic = false
+
+        gl31Ext.onAppCreate()
 
         GLProfiler(Gdx.graphics).also {
             it.enable()
@@ -43,7 +46,9 @@ class App(val gl31Ext: GLES31Imp) : KtxGame<KtxScreen>() {
     override fun dispose() {
         super.dispose()
 
-        instance = null;
+        gl31Ext.onAppDispose()
+
+        instance = null
     }
 
     companion object {
