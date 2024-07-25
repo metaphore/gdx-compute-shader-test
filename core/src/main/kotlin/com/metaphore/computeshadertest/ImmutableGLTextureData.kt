@@ -5,8 +5,10 @@ import com.badlogic.gdx.graphics.TextureData
 import com.badlogic.gdx.graphics.TextureData.TextureDataType
 import com.badlogic.gdx.utils.GdxRuntimeException
 
-/** A [TextureData] implementation which should be used to create gl only textures. This TextureData fits perfectly for
- * ComputeShaders. The data is not managed.  */
+/**
+ * This TextureData is a required for GL compute shader textures.
+ * The data is not managed.
+ */
 class ImmutableGLTextureData(
     private val width: Int,
     private val height: Int,

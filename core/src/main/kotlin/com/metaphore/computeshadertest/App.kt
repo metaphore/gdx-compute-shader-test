@@ -20,6 +20,7 @@ import ktx.assets.disposeSafely
 import ktx.graphics.use
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.IntBuffer
 
 class App(val gl31Ext: GLES31Imp) : KtxGame<KtxScreen>() {
 
@@ -85,7 +86,8 @@ class ComputeShaderTester : Disposable {
     private val programId: Int
     private val texture: Texture
 
-//    private val ssboId : Int
+    private val ssboId : Int
+    private val ssboSize : Int
 
     fun getTexture(): Texture = texture
 
@@ -104,9 +106,6 @@ class ComputeShaderTester : Disposable {
             gl.glGetShaderiv(shaderId, GL_COMPILE_STATUS, intbuf)
             val compileResult = intbuf.get(0)
             if (compileResult != GL_TRUE) {
-                // gl.glGetShaderiv(shader, GL30.GL_INFO_LOG_LENGTH, intbuf);
-                // int infoLogLength = intbuf.get(0);
-                // if (infoLogLength > 1) {
                 val infoLog = gl.glGetShaderInfoLog(shaderId)
                 throw GdxRuntimeException("Failed to compile shader. Log: $infoLog")
             }
@@ -123,54 +122,45 @@ class ComputeShaderTester : Disposable {
             gl.glGetProgramiv(programId, GL_LINK_STATUS, intbuf)
             val linkResult = intbuf[0]
             if (linkResult != GL_TRUE) {
-                // gl.glGetProgramiv(program, GL20.GL_INFO_LOG_LENGTH, intbuf);
-                // int infoLogLength = intbuf.get(0);
-                // if (infoLogLength > 1) {
                 val infoLog = gl.glGetProgramInfoLog(programId)
                 throw GdxRuntimeException("Failed to link shader program. Log: $infoLog");
             }
         }
 
-        checkGdxError()
-
-//        this.texture = Texture(GLOnlyTextureData(TEXTURE_SIZE, TEXTURE_SIZE, 0, GL_RGBA32F, GL_RGBA, GL_FLOAT))
         this.texture = Texture(ImmutableGLTextureData(TEXTURE_SIZE, TEXTURE_SIZE, 1, GL_RGBA32F))
         texture.setWrap(Texture.TextureWrap.ClampToEdge, Texture.TextureWrap.ClampToEdge)
         texture.setFilter(Texture.TextureFilter.Nearest, Texture.TextureFilter.Nearest)
+    }
+
+    // Init SSBO buffer.
+    init {
+        val gl = Gdx.gl30
+
+        val bufferLen = 128
+        val bufferStride = 4 // int = 4 bytes.
+        this.ssboSize = bufferLen * bufferStride
+        val intBuffer = BufferUtils.newIntBuffer(bufferLen)
+        intBuffer.put(23)
+        intBuffer.put(7)
+        intBuffer.put(42)
+        intBuffer.put(101)
+        intBuffer.position(0)
+
+        this.ssboId = gl.glGenBuffer()
+        gl.glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboId)
+        // Initialize SSBO with data. Or pass NULL to "data" to initialize just the SSBO memory space.
+        gl.glBufferData(GL_SHADER_STORAGE_BUFFER, ssboSize, intBuffer, GL_DYNAMIC_READ) // PS: "size" is read from the "data" (on LWJGL3).
+        gl.glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0) // Unbind
 
         checkGdxError()
     }
-
-//    // Init SSBO buffer.
-//    init {
-//        val gl = Gdx.gl30
-//
-//        val bufferLen = 4
-//        val bufferStride = 8 // Byte type size.
-//        val buffer = ByteBuffer.allocateDirect(4)
-//        buffer.putInt(23)
-//
-//        this.ssboId = gl.glGenBuffer()
-//        gl.glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboId)
-//        gl.glBufferData(GL_SHADER_STORAGE_BUFFER, bufferLen * bufferStride, buffer, GL_DYNAMIC_COPY)
-//        gl.glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssboId) //TODO This is Use() part.
-//
-//        also {
-////            gl.glMapBuffer()
-//            val readBuf: ByteBuffer = gl.glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, bufferLen * bufferStride, GL_MAP_READ_BIT) as ByteBuffer
-//            val value = readBuf.asIntBuffer().get()
-//            debug { "Value: $value" }
-//        }
-//
-//        checkGdxError()
-//    }
 
     override fun dispose() {
         val gl = Gdx.gl30
 
         gl.glDeleteShader(shaderId)
         gl.glDeleteProgram(programId)
-//        gl.glDeleteBuffer(ssboId)
+        gl.glDeleteBuffer(ssboId)
 
         texture.dispose()
     }
@@ -182,64 +172,38 @@ class ComputeShaderTester : Disposable {
 
         gl.glUseProgram(programId)
 
-        checkGdxError()
+        glExt.glBindImageTexture(0, texture.textureObjectHandle, 0, false, 0, GL_WRITE_ONLY, GL_RGBA32F)
 
-//        gl.glUniform1i(fetchUniformLocation(programId, "u_textureSize"), TEXTURE_SIZE)
-//        checkGdxError()
-
-//        texture.bindImageTexture(0)
-        glExt.glBindImageTexture(
-            0,
-            texture.textureObjectHandle,
-            0,
-            false,
-            0,
-//            GL_READ_WRITE,
-            GL_WRITE_ONLY,
-            GL_RGBA32F
-        )
-
-        checkGdxError()
+        gl.glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboId)
+        gl.glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssboId)
 
         val invocationGroups = 16
         val shaderThreads = MathUtils.ceil(invocationGroups.toFloat() / TEXTURE_SIZE)
         glExt.glDispatchCompute(shaderThreads, shaderThreads, 1)
 
-        checkGdxError()
-
-        // make sure writing to image has finished before read
-//        gl.glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT)
-        glExt.glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT or
+        // Make sure writing to image has finished before read
+//        gl.glMemoryBarrier(GL_ALL_BARRIER_BITS)
+        glExt.glMemoryBarrier(
+            GL_SHADER_IMAGE_ACCESS_BARRIER_BIT or
             GL_SHADER_STORAGE_BARRIER_BIT or
             GL_BUFFER_UPDATE_BARRIER_BIT)
 
+        gl.glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0) // Unbind
+
+        // Read data from SSBO.
+        also {
+            gl.glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboId)
+            // Each invocation spawns a new ByteBuffer + IntBuffer.
+            // So it's best to avoid reading data frequently.
+            val byteBuffer = gl.glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, ssboSize, GL_MAP_READ_BIT) as ByteBuffer
+            val intView = byteBuffer.asIntBuffer()
+            //TODO Read data here using intView.
+            gl.glUnmapBuffer(GL_SHADER_STORAGE_BUFFER)
+            gl.glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0) // Unbind
+        }
+
         checkGdxError()
     }
-
-//    /** Dispatch compute shader call. */
-//    fun update() {
-//        val gl = Gdx.gl30
-//
-//        gl.glUseProgram(programId)
-//
-//        checkGdxError()
-//
-//        gl.glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssboId)
-//
-//        checkGdxError()
-//
-//        gl.glDispatchCompute(1, 1, 1)
-//
-//        checkGdxError()
-//
-//        // make sure writing to image has finished before read
-////        gl.glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT)
-//        gl.glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT or
-//            GL_SHADER_STORAGE_BARRIER_BIT or
-//            GL_BUFFER_UPDATE_BARRIER_BIT)
-//
-//        checkGdxError()
-//    }
 
     companion object {
         const val TEXTURE_SIZE = 16
